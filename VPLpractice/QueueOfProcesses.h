@@ -5,13 +5,19 @@ class Process {
 
 	int PID;
 	int serviceTime;
-	int arrivalTime;
+	int remainTime;
+	int turnaroundTime;
 
 	public:
-		Process(int PID, int serviceTime, int arrivalTime) {
+		Process(int PID, int serviceTime) {
 			this->PID = PID;
 			this->serviceTime = serviceTime;
-			this->arrivalTime = arrivalTime;
+			this->remainTime = serviceTime;
+			turnaroundTime = 0;
+		}
+
+		void setTurnaroundTime(int time) {
+			turnaroundTime = time;
 		}
 };
 
@@ -22,9 +28,10 @@ class QueueOfProcesses {
 	int rear;
 	int capacity;
 	int size;
-	
+	int quantum;
+
 public:
-	QueueOfProcesses(int capacity);
+	QueueOfProcesses(int capacity, int quantum);
 	~QueueOfProcesses();
 
 	void enqueue(Process p);

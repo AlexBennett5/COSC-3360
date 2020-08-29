@@ -1,7 +1,13 @@
 #ifndef FEEDBACKSCHED_H
 #define FEEDBACKSCHED_H
 
+class QueueOfProcesses;
+
 class FeedbackScheduler {
+
+	Process *p_arr
+	QueueOfProcesses *q_arr;
+	int nextQuantum;
 
 	public:
 		FeedbackScheduler();

@@ -1,9 +1,10 @@
 #include "QueueOfProcesses.h"
 
-QueueOfProcesses::QueueOfProcesses(int capacity) {
+QueueOfProcesses::QueueOfProcesses(int capacity, int quantum) {
 
 	arr = new Process[capacity];
 	this->capacity = capacity;
+	this->quantum = quantum;
 	size = 0;
 	front = 0;
 	rear = -1;
