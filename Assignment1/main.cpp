@@ -44,6 +44,32 @@ void maxHostOctet(std::vector<std::vector<Address> >& res, int ind) {
 	--res[ind][5].val[3];
 }
 
+int numberOfZeroBits(int num) {
+        int count = 0;
+        for (int i = 0; i < 8; i++) {
+                if (!(num & 1))
+                        ++count;
+                num >>= 1;
+        }
+        return count;
+}
+
+int power(int base, int exp) {
+        int res = 1;
+        while (exp > 0) {
+                res *= base;
+                --exp;
+        }
+        return res;
+}
+
+int numberOfHosts(Address subnet) {
+        int count = 0;
+        for (int i = 0; i < 4; i++)
+                count += numberOfZeroBits(subnet.val[i]);
+        return power(2, count) - 2;
+}
+
 void addressCalculator(std::vector<std::vector<Address> >& res, int ind) {
 	std::thread t1(networkOctet, std::ref(res), ind);
 	std::thread t2(broadcastOctet, std::ref(res), ind);
@@ -53,61 +79,58 @@ void addressCalculator(std::vector<std::vector<Address> >& res, int ind) {
 	t2.join();
 	t3.join();
 	t4.join();
+
+	adr_mutex.lock();
+	res[ind][6].val[0] = numberOfHosts(res[ind][1]);
+	adr_mutex.unlock();
 }
 
-std::vector<std::vector<Address> > IPcalculator(std::vector<std::vector<Address> > adr) {
+void tokenize(std::string const &str, const char split, std::vector<std::string> &tokens) {
+	size_t start;
+	size_t end = 0;
+
+	while ((start = str.find_first_not_of(split, end)) != std::string::npos) {
+		end = str.find(split, start);
+		tokens.push_back(str.substr(start, end - start));
+	}
+}
+
+Address vectToAddress(std::vector<std::string> vect) {
+	int v1 = std::stoi(vect[0]);
+	int v2 = std::stoi(vect[1]);
+	int v3 = std::stoi(vect[2]);
+	int v4 = std::stoi(vect[3]);
+	return Address(v1, v2, v3, v4);
+}
+
+std::vector<std::vector<Address> > IPcalculator() {
 	std::vector<std::thread> threads;
-	int n = adr.size();
 	std::vector<std::vector<Address> > res;
+	std::string line;
+	int i = 0;
+	
+	while (std::getline(std::cin, line)) {
+		std::vector<std::string> adr;
+		std::vector<std::string> ip;
+		std::vector<std::string> subnet;
 
-	for (int i = 0; i < n; i++) {
-		std::vector<Address> x;
-		for (int j = 0; j < 6; j++) {
-			x.push_back(Address(0,0,0,0));
-		}
-		res.push_back(x);
-	}
-
-	for (int i = 0; i < n; i++) {
-		res[i][0] = adr[i][0];
-		res[i][1] = adr[i][1];
-	}
-
-	for (int i = 0; i < n; i++) {
+		tokenize(line, ' ', adr);
+		tokenize(adr[0], '.', ip);
+		tokenize(adr[1], '.', subnet);
+	
+		res.push_back(std::vector<Address> (7, Address(0,0,0,0)));
+		res[i][0] = vectToAddress(ip);
+		res[i][1] = vectToAddress(subnet);
+		
 		threads.push_back(std::thread(addressCalculator, std::ref(res), i));
+		++i;
 	}
 		
-	for (int i = 0; i < n; i++) {
-		threads[i].join();
+	for (int k = 0; k < i; k++) {
+		threads[k].join();
 	}
 
 	return res;
-}
-
-int numberOfZeroBits(int num) {
-	int count = 0;
-	for (int i = 0; i < 8; i++) {
-		if (!(num & 1))
-			++count;
-		num >>= 1;
-	}
-	return count;
-}
-
-int power(int base, int exp) {
-	int res = 1;
-	while (exp > 0) {
-		res *= base;
-		--exp;
-	}
-	return res;
-}
-
-int numberOfHosts(Address subnet) {
-	int count = 0;
-	for (int i = 0; i < 4; i++) 
-		count += numberOfZeroBits(subnet.val[i]);
-	return power(2, count) - 2;
 }
 
 void printAddress(Address adr) {
@@ -127,20 +150,22 @@ void printInfo(std::vector<Address> adr) {
 	printAddress(adr[4]);
 	printf("HostMax: ");
 	printAddress(adr[5]);
-	printf("# Hosts: %d\n", numberOfHosts(adr[1]));
+	printf("# Hosts: %d\n\n", adr[6].val[0]);
+}
+
+void test() {
+	std::string line;
+	while(std::getline(std::cin, line)) {
+		std::cout << line << "\n";
+	}
 }
 
 int main() {
 
-	Address ip(192, 168, 1, 1);
-	Address subnet(255, 255, 255, 0);
-	std::vector<Address> t;
-	t.push_back(ip);
-	t.push_back(subnet);
-	std::vector<std::vector<Address> > test;
-	test.push_back(t);
-	std::vector<std::vector<Address> > res = IPcalculator(test);
-
-	printInfo(res[0]);
+	std::vector<std::vector<Address> > res = IPcalculator();
+	
+	for (int i = 0; i < res.size(); i++) {
+		printInfo(res[i]);
+	}
 }
 
