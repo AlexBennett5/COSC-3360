@@ -36,35 +36,10 @@ typedef struct AddressObj {
 		
 } AddressObj;
 
-void* networkOctet(void *adrObj_void_ptr) {
-	
-	AddressObj *adrObj = (AddressObj *) adrObj_void_ptr;
-	adrObj->network = networkAddress(adrObj->ip, adrObj->subnet);
-	return NULL;
-}
+typedef struct Octet {
+	int val[6];
 
-void* broadcastOctet(void *adrObj_void_ptr) {
-	
-	AddressObj *adrObj = (AddressObj *) adrObj_void_ptr;
-	adrObj->broadcast = broadcastAddress(adrObj->ip, adrObj->subnet);
-	return NULL;
-}
-
-void* minHostOctet(void *adrObj_void_ptr) {
-	
-	AddressObj *adrObj = (AddressObj *) adrObj_void_ptr;
-	adrObj->minHost = networkAddress(adrObj->ip, adrObj->subnet);
-	adrObj->minHost.val[3]++;
-	return NULL;
-}
-
-void* maxHostOctet(void *adrObj_void_ptr) {
-	
-	AddressObj *adrObj = (AddressObj *) adrObj_void_ptr;
-	adrObj->maxHost = broadcastAddress(adrObj->ip, adrObj->subnet);
-	adrObj->maxHost.val[3]--;
-	return NULL;
-}
+} Octet;
 
 int numberOfZeroBits(int num) {
         int count = 0;
@@ -92,35 +67,61 @@ int numberOfHosts(Address subnet) {
         return power(2, count) - 2;
 }
 
+void* octetTail(void *octet_void_ptr) {
+	Octet *oct = (Octet *) octet_void_ptr;
+	oct->val[2] = oct->val[0] & oct->val[1];
+	oct->val[3] = oct->val[0] | (~oct->val[1] & 255);
+	oct->val[4] = oct->val[0] & oct->val[1];
+	oct->val[4]++;
+	oct->val[5] = oct->val[0] | (~oct->val[1] & 255);
+	oct->val[5]--;
+	return NULL;
+}
+
+void* octetNormal(void *octet_void_ptr) {
+	Octet *oct = (Octet *) octet_void_ptr;
+	oct->val[2] = oct->val[0] & oct->val[1];
+	oct->val[3] = oct->val[0] | (~oct->val[1] & 255);
+	oct->val[4] = oct->val[0] & oct->val[1];
+	oct->val[5] = oct->val[0] | (~oct->val[1] & 255);
+	return NULL;
+}
+
 void* addressCalculator(void *adrObj_void_ptr) {
 
 	AddressObj *adrObj = (AddressObj *) adrObj_void_ptr;
 	pthread_t tid[4];
 	
-	if (pthread_create(&tid[0], NULL, networkOctet, adrObj)) {
-        	fprintf(stderr, "Error creating thread\n");
-                return NULL;
-        }
-	
-	if (pthread_create(&tid[1], NULL, broadcastOctet, adrObj)) {
-        	fprintf(stderr, "Error creating thread\n");
-                return NULL;
-        }
+	Octet oct[4];
 
-	if (pthread_create(&tid[2], NULL, minHostOctet, adrObj)) {
-        	fprintf(stderr, "Error creating thread\n");
-                return NULL;
-        }
-	
-	if (pthread_create(&tid[3], NULL, maxHostOctet, adrObj)) {
-        	fprintf(stderr, "Error creating thread\n");
-                return NULL;
-        }
+	for (int i = 0; i < 4; i++) {
+		oct[i].val[0] = adrObj->ip.val[i];
+		oct[i].val[1] = adrObj->subnet.val[i];
+		if (i != 3) {
+			if (pthread_create(&tid[i], NULL, octetNormal, &oct[i])) {
+				fprintf(stderr, "Error creating thread\n");
+                		return NULL;
+			}
+		} else {
+			if (pthread_create(&tid[i], NULL, octetTail, &oct[i])) {
+                                fprintf(stderr, "Error creating thread\n");
+                                return NULL;
+			}
+		}
+	}
 
 	pthread_join(tid[0], NULL);
 	pthread_join(tid[1], NULL);
 	pthread_join(tid[2], NULL);
 	pthread_join(tid[3], NULL);
+
+
+	for (int i = 0; i < 4; i++) {
+		adrObj->network.val[i] = oct[i].val[2];
+		adrObj->broadcast.val[i] = oct[i].val[3];
+		adrObj->minHost.val[i] = oct[i].val[4];
+		adrObj->maxHost.val[i] = oct[i].val[5];
+	}
 
 	adrObj->hosts = numberOfHosts(adrObj->subnet);
 
@@ -182,7 +183,7 @@ void printAddress(Address adr) {
 }
 
 void printInfo(AddressObj adr) {
-	printf("\nIP Address: ");
+	printf("IP Address: ");
 	printAddress(adr.ip);
 	printf("Subnet: ");
 	printAddress(adr.subnet);
@@ -194,7 +195,7 @@ void printInfo(AddressObj adr) {
 	printAddress(adr.minHost);
 	printf("HostMax: ");
 	printAddress(adr.maxHost);
-	printf("# Hosts: %d\n", adr.hosts);
+	printf("# Hosts: %d\n\n", adr.hosts);
 }
 
 int main() {
@@ -202,8 +203,10 @@ int main() {
 	static AddressObj res[MAXTHREAD];
 	int n = IPcalculator(res);
 
+	printf("\n");
 	for (int i = 0; i < n; i++) {
 		printInfo(res[i]);
 	}
+
 }
 
