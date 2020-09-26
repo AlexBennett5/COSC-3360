@@ -1,99 +1,70 @@
 #include <iostream>
 #include <string>
-#include <thread>
 #include <vector>
-#include <mutex>
+#include <pthread.h>
+#include <unistd.h>
 
-std::mutex adr_mutex;
+#define MAXTHREAD 100
 
-class Address {
-	public:
+typedef struct Address {
 	unsigned int val[4];
 
-	Address(unsigned int v1, unsigned int v2, unsigned int v3, unsigned int v4) {
-		val[0] = v1;
-		val[1] = v2;
-		val[2] = v3;
-		val[3] = v4;
-	}
-
-	Address() {
-		val[0] = 0;
-		val[1] = 0;
-		val[2] = 0;
-		val[3] = 0;
-	}
-
-
-	void operator=(const Address &A) {
-		val[0] = A.val[0];
-		val[1] = A.val[1];
-		val[2] = A.val[2];
-		val[3] = A.val[3];
-	}
-};
+} Address;
 
 Address networkAddress(Address ip, Address subnet) {	
-	Address network(0,0,0,0);
+	Address network;
 	for (int i = 0; i < 4; i++)
 		network.val[i] = ip.val[i] & subnet.val[i];
 	return network;
 }
 
 Address broadcastAddress(Address ip, Address subnet) {
-	Address broadcast(0,0,0,0);
+	Address broadcast;
 	for (int i = 0; i < 4; i++)
 		broadcast.val[i] = ip.val[i] | (~subnet.val[i] & 255);
 	return broadcast;
 }
 
-class AddressObj {
-	public:
-		Address ip;
-		Address subnet;
-		Address network;
-		Address broadcast;
-		Address minHost;
-		Address maxHost;
-		int hosts;
+typedef struct AddressObj {
+	Address ip;
+	Address subnet;
+	Address network;
+	Address broadcast;
+	Address minHost;
+	Address maxHost;
+	int hosts;
+		
+} AddressObj;
 
-	AddressObj() {
-		hosts = 0;
-	}
-
-	AddressObj(const AddressObj &A) {
-		ip = A.ip;
-		subnet = A.subnet;
-		network = A.network;
-		broadcast = A.broadcast;
-		minHost = A.minHost;
-		maxHost = A.maxHost;
-		hosts = A.hosts;
-	}	
-};
-
-void networkOctet(std::vector<AddressObj>& res, int ind) {
-        std::lock_guard<std::mutex> lock(adr_mutex);
-        res[ind].network = networkAddress(res[ind].ip, res[ind].subnet);
+void* networkOctet(void *adrObj_void_ptr) {
+	
+	AddressObj *adrObj = (AddressObj *) adrObj_void_ptr;
+	adrObj->network = networkAddress(adrObj->ip, adrObj->subnet);
+	return NULL;
 }
 
-void broadcastOctet(std::vector<AddressObj>& res, int ind) {
-        std::lock_guard<std::mutex> lock(adr_mutex);
-        res[ind].broadcast = broadcastAddress(res[ind].ip, res[ind].subnet);
+void* broadcastOctet(void *adrObj_void_ptr) {
+	
+	AddressObj *adrObj = (AddressObj *) adrObj_void_ptr;
+	adrObj->broadcast = broadcastAddress(adrObj->ip, adrObj->subnet);
+	return NULL;
 }
 
-void minHostOctet(std::vector<AddressObj>& res, int ind) {
-        std::lock_guard<std::mutex> lock(adr_mutex);
-        res[ind].minHost = networkAddress(res[ind].ip, res[ind].subnet);
-        ++res[ind].minHost.val[3];
+void* minHostOctet(void *adrObj_void_ptr) {
+	
+	AddressObj *adrObj = (AddressObj *) adrObj_void_ptr;
+	adrObj->minHost = networkAddress(adrObj->ip, adrObj->subnet);
+	adrObj->minHost.val[3]++;
+	return NULL;
 }
 
-void maxHostOctet(std::vector<AddressObj>& res, int ind) {
-        std::lock_guard<std::mutex> guard(adr_mutex);
-        res[ind].maxHost = broadcastAddress(res[ind].ip, res[ind].subnet);
-        --res[ind].maxHost.val[3];
+void* maxHostOctet(void *adrObj_void_ptr) {
+	
+	AddressObj *adrObj = (AddressObj *) adrObj_void_ptr;
+	adrObj->maxHost = broadcastAddress(adrObj->ip, adrObj->subnet);
+	adrObj->maxHost.val[3]--;
+	return NULL;
 }
-
 
 int numberOfZeroBits(int num) {
         int count = 0;
@@ -121,22 +92,42 @@ int numberOfHosts(Address subnet) {
         return power(2, count) - 2;
 }
 
-void addressCalculator(std::vector<AddressObj>& res, int ind) {
-        std::thread t1(networkOctet, std::ref(res), ind);
-        std::thread t2(broadcastOctet, std::ref(res), ind);
-        std::thread t3(minHostOctet, std::ref(res), ind);
-        std::thread t4(maxHostOctet, std::ref(res), ind);
-        t1.join();
-        t2.join();
-        t3.join();
-        t4.join();
+void* addressCalculator(void *adrObj_void_ptr) {
 
-        adr_mutex.lock();
-        res[ind].hosts = numberOfHosts(res[ind].subnet);
-        adr_mutex.unlock();
+	AddressObj *adrObj = (AddressObj *) adrObj_void_ptr;
+	pthread_t tid[4];
+	
+	if (pthread_create(&tid[0], NULL, networkOctet, adrObj)) {
+        	fprintf(stderr, "Error creating thread\n");
+                return NULL;
+        }
+	
+	if (pthread_create(&tid[1], NULL, broadcastOctet, adrObj)) {
+        	fprintf(stderr, "Error creating thread\n");
+                return NULL;
+        }
+
+	if (pthread_create(&tid[2], NULL, minHostOctet, adrObj)) {
+        	fprintf(stderr, "Error creating thread\n");
+                return NULL;
+        }
+	
+	if (pthread_create(&tid[3], NULL, maxHostOctet, adrObj)) {
+        	fprintf(stderr, "Error creating thread\n");
+                return NULL;
+        }
+
+	pthread_join(tid[0], NULL);
+	pthread_join(tid[1], NULL);
+	pthread_join(tid[2], NULL);
+	pthread_join(tid[3], NULL);
+
+	adrObj->hosts = numberOfHosts(adrObj->subnet);
+
+	return NULL;
 }
 
-void tokenize(std::string const &str, const char split, std::vector<std::string> &tokens) {
+void parseLine(std::string const &str, const char split, std::vector<std::string> &tokens) {
 	size_t start;
 	size_t end = 0;
 
@@ -147,42 +138,43 @@ void tokenize(std::string const &str, const char split, std::vector<std::string>
 }
 
 Address vectToAddress(std::vector<std::string> vect) {
-	int v1 = std::stoi(vect[0]);
-	int v2 = std::stoi(vect[1]);
-	int v3 = std::stoi(vect[2]);
-	int v4 = std::stoi(vect[3]);
-	return Address(v1, v2, v3, v4);
+	Address ret;
+	ret.val[0] = std::stoi(vect[0]);
+	ret.val[1] = std::stoi(vect[1]);
+	ret.val[2] = std::stoi(vect[2]);
+	ret.val[3] = std::stoi(vect[3]);
+	return ret;
 }
 
-std::vector<AddressObj> IPcalculator() {
-	std::vector<std::thread> threads;
-	std::vector<AddressObj> res;
+int IPcalculator(AddressObj res[]) {
+	pthread_t tid[MAXTHREAD];
 	std::string line;
 	int i = 0;
 	
-	while (std::getline(std::cin, line)) {
+	while (std::cin >> line) {
 		std::vector<std::string> adr;
 		std::vector<std::string> ip;
 		std::vector<std::string> subnet;
 
-		tokenize(line, ' ', adr);
-		tokenize(adr[0], '.', ip);
-		tokenize(adr[1], '.', subnet);
+		parseLine(line, '.', ip);
+		std::cin >> line;
+		parseLine(line, '.', subnet);	
 
-		AddressObj newObj;	
-		newObj.ip = vectToAddress(ip);
-		newObj.subnet = vectToAddress(subnet);
+		res[i].ip = vectToAddress(ip);
+		res[i].subnet = vectToAddress(subnet);
 
-		res.push_back(newObj);
-		threads.push_back(std::thread(addressCalculator, std::ref(res), i));
+		if (pthread_create(&tid[i], NULL, addressCalculator, &res[i])) {
+			fprintf(stderr, "Error creating thread\n");
+			return 1;
+		}
 		++i;
 	}
 		
 	for (int k = 0; k < i; k++) {
-		threads[k].join();
+		pthread_join(tid[k], NULL);
 	}
 
-	return res;
+	return i;
 }
 
 void printAddress(Address adr) {
@@ -190,7 +182,7 @@ void printAddress(Address adr) {
 }
 
 void printInfo(AddressObj adr) {
-	printf("IP Address: ");
+	printf("\nIP Address: ");
 	printAddress(adr.ip);
 	printf("Subnet: ");
 	printAddress(adr.subnet);
@@ -202,14 +194,15 @@ void printInfo(AddressObj adr) {
 	printAddress(adr.minHost);
 	printf("HostMax: ");
 	printAddress(adr.maxHost);
-	printf("# Hosts: %d\n\n", adr.hosts);
+	printf("# Hosts: %d\n", adr.hosts);
 }
 
 int main() {
 
-	std::vector<AddressObj> res = IPcalculator();
-	
-	for (int i = 0; i < res.size(); i++) {
+	static AddressObj res[MAXTHREAD];
+	int n = IPcalculator(res);
+
+	for (int i = 0; i < n; i++) {
 		printInfo(res[i]);
 	}
 }
