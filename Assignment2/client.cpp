@@ -11,6 +11,11 @@
 
 #define MAXTHREAD 100
 
+void error(char *msg) {
+    perror(msg);
+    exit(0);
+}
+
 typedef struct Address {
 	unsigned int val[4];
 
@@ -26,6 +31,10 @@ typedef struct AddressObj {
 	int hosts;
 
 } AddressObj;
+
+void printAddress(Address adr) {
+	printf("%d.%d.%d.%d\n", adr.val[0], adr.val[1], adr.val[2], adr.val[3]);
+}
 
 void printInfo(AddressObj adr) {
 	printf("IP Address: ");
@@ -52,6 +61,57 @@ Address vectToAddress(std::vector<std::string> vect) {
 	return ret;
 }
 
+int main(int argc, char *argv[]) {
+    int sockfd, portno, n;
+    AddressObj adrObjOut;
+    struct sockaddr_in serv_addr;
+    struct hostent *server;
+    char buffer[256];
+    if (argc < 3) {
+       fprintf(stderr,"usage %s hostname port\n", argv[0]);
+       exit(0);
+    }
+    portno = atoi(argv[2]);
+    sockfd = socket(AF_INET, SOCK_STREAM, 0);
+    if (sockfd < 0) 
+        error("ERROR opening socket");
+    server = gethostbyname(argv[1]);
+    if (server == NULL) {
+        fprintf(stderr,"ERROR, no such host\n");
+        exit(0);
+    }
+    bzero((char *) &serv_addr, sizeof(serv_addr));
+    serv_addr.sin_family = AF_INET;
+    bcopy((char *)server->h_addr, 
+         (char *)&serv_addr.sin_addr.s_addr,
+         server->h_length);
+    serv_addr.sin_port = htons(portno);
+    if (connect(sockfd,(struct sockaddr *)&serv_addr,sizeof(serv_addr)) < 0) 
+        error("ERROR connecting");
+    
+    adrObjOut.ip.val[0] = 192;
+    adrObjOut.ip.val[1] = 168;
+    adrObjOut.ip.val[2] = 1;
+    adrObjOut.ip.val[3] = 1;
+
+    adrObjOut.subnet.val[0] = 255;
+    adrObjOut.subnet.val[1] = 255;
+    adrObjOut.subnet.val[2] = 255;
+    adrObjOut.subnet.val[3] = 0;
+    
+    n = write(sockfd,&adrObjOut,sizeof(AddressObj));
+    if (n < 0) 
+         error("ERROR writing to socket");
+    
+    n = read(sockfd,&adrObjOut,sizeof(AddressObj));
+    if (n < 0) 
+         error("ERROR reading from socket");
+
+    printInfo(adrObjOut);
+    return 0;    
+}
+
+/*
 void parseLine(std::string const &str, const char split, std::vector<std::string> &tokens) {
 	size_t start;
 	size_t end = 0;
@@ -62,9 +122,6 @@ void parseLine(std::string const &str, const char split, std::vector<std::string
 	}
 }
 
-void* sendToServer(void *adrObj_void_ptr) {
-	AddressObj *adrObj = (AddressObj *) adrObj_void_ptr;
-}
 
 int ipCalculator(AddressObj res[]) {
 	pthread_t tid[MAXTHREAD];
@@ -82,7 +139,7 @@ int ipCalculator(AddressObj res[]) {
 		res[i].ip = vectToAddress(ip);
 		res[i].subnet = vectToAddress(subnet);
 	
-		if (pthread_create(&tid[n], NULL, /* Function */, &res[n])) {
+		if (pthread_create(&tid[n], NULL,  Function, &res[n])) {
 			fprintf(stderr, "Error creating thread\n");
 			return 1;
 		}
@@ -108,3 +165,4 @@ int main(int argc, char *argv[]) {
 	}
 
 }
+*/
