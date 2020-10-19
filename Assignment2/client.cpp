@@ -22,6 +22,7 @@ typedef struct Address {
 } Address;
 
 typedef struct AddressObj {
+
 	Address ip;
 	Address subnet;
 	Address network;
@@ -31,6 +32,12 @@ typedef struct AddressObj {
 	int hosts;
 
 } AddressObj;
+
+typedef struct ServerObj {
+	int portno;
+	char* servername;
+	AddressObj adrObj;
+} ServerObj;
 
 void printAddress(Address adr) {
 	printf("%d.%d.%d.%d\n", adr.val[0], adr.val[1], adr.val[2], adr.val[3]);
@@ -61,57 +68,6 @@ Address vectToAddress(std::vector<std::string> vect) {
 	return ret;
 }
 
-int main(int argc, char *argv[]) {
-    int sockfd, portno, n;
-    AddressObj adrObjOut;
-    struct sockaddr_in serv_addr;
-    struct hostent *server;
-    char buffer[256];
-    if (argc < 3) {
-       fprintf(stderr,"usage %s hostname port\n", argv[0]);
-       exit(0);
-    }
-    portno = atoi(argv[2]);
-    sockfd = socket(AF_INET, SOCK_STREAM, 0);
-    if (sockfd < 0) 
-        error("ERROR opening socket");
-    server = gethostbyname(argv[1]);
-    if (server == NULL) {
-        fprintf(stderr,"ERROR, no such host\n");
-        exit(0);
-    }
-    bzero((char *) &serv_addr, sizeof(serv_addr));
-    serv_addr.sin_family = AF_INET;
-    bcopy((char *)server->h_addr, 
-         (char *)&serv_addr.sin_addr.s_addr,
-         server->h_length);
-    serv_addr.sin_port = htons(portno);
-    if (connect(sockfd,(struct sockaddr *)&serv_addr,sizeof(serv_addr)) < 0) 
-        error("ERROR connecting");
-    
-    adrObjOut.ip.val[0] = 192;
-    adrObjOut.ip.val[1] = 168;
-    adrObjOut.ip.val[2] = 1;
-    adrObjOut.ip.val[3] = 1;
-
-    adrObjOut.subnet.val[0] = 255;
-    adrObjOut.subnet.val[1] = 255;
-    adrObjOut.subnet.val[2] = 255;
-    adrObjOut.subnet.val[3] = 0;
-    
-    n = write(sockfd,&adrObjOut,sizeof(AddressObj));
-    if (n < 0) 
-         error("ERROR writing to socket");
-    
-    n = read(sockfd,&adrObjOut,sizeof(AddressObj));
-    if (n < 0) 
-         error("ERROR reading from socket");
-
-    printInfo(adrObjOut);
-    return 0;    
-}
-
-/*
 void parseLine(std::string const &str, const char split, std::vector<std::string> &tokens) {
 	size_t start;
 	size_t end = 0;
@@ -122,11 +78,49 @@ void parseLine(std::string const &str, const char split, std::vector<std::string
 	}
 }
 
+void* connectToServer(void *servObj_void_ptr) {
 
-int ipCalculator(AddressObj res[]) {
+	ServerObj *servObj = (ServerObj *) servObj_void_ptr;
+
+	int sockfd, n;
+    	struct sockaddr_in serv_addr;
+    
+	int portno = servObj->portno;
+	struct hostent* server = gethostbyname(servObj->servername);
+	if (server == NULL) {
+		fprintf(stderr, "ERROR, no such host\n");
+		exit(0);
+	}
+
+    	sockfd = socket(AF_INET, SOCK_STREAM, 0);
+    	if (sockfd < 0)
+        	error("ERROR opening socket");
+
+    	bzero((char *) &serv_addr, sizeof(serv_addr));
+    	serv_addr.sin_family = AF_INET;
+   	bcopy((char *)server->h_addr,
+         	(char *)&serv_addr.sin_addr.s_addr,
+         	server->h_length);
+    	serv_addr.sin_port = htons(portno);
+    	if (connect(sockfd,(struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0)
+        	error("ERROR connecting");
+    
+   
+    	n = write(sockfd, &(servObj->adrObj), sizeof(AddressObj));
+    	if (n < 0)
+        	 error("ERROR writing to socket");
+    
+    	n = read(sockfd, &(servObj->adrObj), sizeof(AddressObj));
+    	if (n < 0)
+         	error("ERROR reading from socket");
+    	close(sockfd);
+	return NULL;
+}
+
+int ipCalculator(ServerObj res[], int portno, char* servername) {
 	pthread_t tid[MAXTHREAD];
 	std::string line;
-	int n = 0;
+	int i = 0;
 
 	while (std::cin >> line) {
 		std::vector<std::string> ip;
@@ -136,33 +130,43 @@ int ipCalculator(AddressObj res[]) {
 		std::cin >> line;
 		parseLine(line, '.', subnet);	
 
-		res[i].ip = vectToAddress(ip);
-		res[i].subnet = vectToAddress(subnet);
-	
-		if (pthread_create(&tid[n], NULL,  Function, &res[n])) {
+		res[i].adrObj.ip = vectToAddress(ip);
+		res[i].adrObj.subnet = vectToAddress(subnet);
+		res[i].portno = portno;
+		res[i].servername = servername;
+
+		if (pthread_create(&tid[i], NULL, connectToServer, &res[i])) {
 			fprintf(stderr, "Error creating thread\n");
 			return 1;
 		}
 
-		++n;
+		++i;
 	
 	}
 
-	for (int k = 0; k < n; k++)
+	for (int k = 0; k < i; k++)
 		pthread_join(tid[k], NULL);
 
-	return n;
+	return i;
 }
 
 int main(int argc, char *argv[]) {
 
-	static AddressObj res[MAXTHREAD];
-	int n = ipCalculator(res);
+	if (argc < 3) {
+          fprintf(stderr,"usage %s hostname port\n", argv[0]);
+          exit(0);
+        }
+        
+	int portno = atoi(argv[2]);
+	char* servername = argv[1];
+
+	static ServerObj res[MAXTHREAD];
+	int n = ipCalculator(res, portno, servername);
 
 	printf("\n");
 	for (int i = 0; i < n; i++) {
-		printInfo(res[i]);
+		printInfo(res[i].adrObj);
 	}
 
 }
-*/
+
