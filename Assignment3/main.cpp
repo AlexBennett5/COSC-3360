@@ -23,13 +23,15 @@ typedef struct AddressObj {
 		
 } AddressObj;
 
+typedef struct SynchObj {
+  AddressObj obj;
+  pthread_mutex_t sem;
+} SynchObj;
+
 static pthread_mutex_t lock;
 static pthread_cond_t waitTurn = PTHREAD_COND_INITIALIZER;
-static pthread_cond_t startTurn = PTHREAD_COND_INITIALIZER;
 static int currentTally = 0;
 static int threadno = 0;
-static int startTally = 0;
-static int startno = 0;
 static std::deque<AddressObj> res;
 
 Address networkAddress(Address ip, Address subnet) {  
@@ -92,22 +94,30 @@ int numberOfHosts(Address subnet) {
         return power(2, count) - 2;
 }
 
-void* netCalculator(void *adrObj_void_ptr) {
+void* netCalculator(void *synchObj_void_ptr) {
 
-  AddressObj *adrObj = (AddressObj *) adrObj_void_ptr;
-  adrObj->network = networkAddress(adrObj->ip, adrObj->subnet);
-  adrObj->minHost = copyAddress(adrObj->network);
-  ++adrObj->minHost.val[3]; 
+  SynchObj *synchObj = (SynchObj *) synchObj_void_ptr;
+
+  pthread_mutex_lock(&(synchObj->sem));
+  synchObj->obj.network = networkAddress(synchObj->obj.ip, synchObj->obj.subnet);
+  pthread_mutex_unlock(&(synchObj->sem));
+  
+  synchObj->obj.minHost = copyAddress(synchObj->obj.network);
+  ++synchObj->obj.minHost.val[3]; 
 
   return NULL;
 }
 
-void* broadCalculator(void *adrObj_void_ptr) {
+void* broadCalculator(void *synchObj_void_ptr) {
   
-  AddressObj *adrObj = (AddressObj *) adrObj_void_ptr;
-  adrObj->broadcast = broadcastAddress(adrObj->ip, adrObj->subnet);
-  adrObj->maxHost = copyAddress(adrObj->broadcast);
-  --adrObj->maxHost.val[3];
+  SynchObj *synchObj = (SynchObj *) synchObj_void_ptr;
+
+  pthread_mutex_lock(&(synchObj->sem));
+  synchObj->obj.broadcast = broadcastAddress(synchObj->obj.ip, synchObj->obj.subnet);
+  pthread_mutex_unlock(&(synchObj->sem));
+
+  synchObj->obj.maxHost = copyAddress(synchObj->obj.broadcast);
+  --synchObj->obj.maxHost.val[3];
 
   return NULL;
 }
@@ -117,37 +127,37 @@ void* addressCalculator(void *intPtr) {
   AddressObj addrObj;
 
   pthread_mutex_lock(&lock);
-  int check = startno++;
-  
-  while (check != startTally) {
-    pthread_cond_wait(&startTurn, &lock);
-  }
+
+  while (res.empty()) {}
 
   addrObj = res.front(); 
   res.pop_front();
   addrObj.currthread = threadno++;
-  startTally++;
-  pthread_cond_broadcast(&startTurn);
   pthread_mutex_unlock(&lock);
 
   addrObj.hosts = numberOfHosts(addrObj.subnet);
 
+  SynchObj synch;
+  synch.obj = copyAddressObj(addrObj);
+  pthread_mutex_init(&synch.sem, NULL);
+
   pthread_t netthread;
   pthread_t broadthread;
 
-  if ((pthread_create(&netthread, NULL, netCalculator, &addrObj)) < 0) {
+  if ((pthread_create(&netthread, NULL, netCalculator, &synch)) < 0) {
+    printf("ERROR on thread\n");
+    exit(0);
+  }
+
+  if ((pthread_create(&broadthread, NULL, broadCalculator, &synch)) < 0) {
     printf("ERROR on thread\n");
     exit(0);
   }
 
   pthread_join(netthread, NULL);
-
-  if ((pthread_create(&broadthread, NULL, broadCalculator, &addrObj)) < 0) {
-    printf("ERROR on thread\n");
-    exit(0);
-  }
-
   pthread_join(broadthread, NULL);
+
+  addrObj = copyAddressObj(synch.obj);
 
   pthread_mutex_lock(&lock);
   while (addrObj.currthread != currentTally) {
